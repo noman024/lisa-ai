@@ -6,11 +6,28 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+import app
 from app.models.schemas import ChatRequest, ChatResponse, HealthResponse
 from app.agent.state import GraphState
 
 _log = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get(
+    "/",
+    tags=["system"],
+    summary="Service info",
+)
+async def service_root() -> dict[str, str]:
+    """Helps evaluators and tools discover OpenAPI docs and the chat endpoint from a browser or curl ``GET /``."""
+    return {
+        "service": "LISA — Life Insurance Support Assistant",
+        "version": app.__version__,
+        "docs": "/docs",
+        "health": "/health",
+        "chat": "POST /chat JSON: { session_id, message }",
+    }
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])

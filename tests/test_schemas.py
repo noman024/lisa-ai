@@ -38,3 +38,28 @@ def test_max_length_message() -> None:
 def test_message_over_max_length_rejected() -> None:
     with pytest.raises(ValidationError):
         ChatRequest(session_id="s", message="a" * 8001)
+
+
+def test_session_id_max_length_boundary() -> None:
+    s = "a" * 256
+    r = ChatRequest(session_id=s, message="hi")
+    assert len(r.session_id) == 256
+    with pytest.raises(ValidationError):
+        ChatRequest(session_id="a" * 257, message="hi")
+
+
+def test_chat_response_model_defaults() -> None:
+    from app.models.schemas import ChatResponse, HealthResponse
+
+    cr = ChatResponse(response="x")
+    assert cr.sources == []
+    assert cr.query_type == ""
+    assert cr.low_confidence is False
+    h = HealthResponse(
+        status="ok",
+        llm_base_url="u",
+        llm_model="m",
+        embedding_model_id="e",
+        index_ready=True,
+    )
+    assert h.index_error is None

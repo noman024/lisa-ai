@@ -181,6 +181,31 @@ def test_prompt_builder_includes_conversation_block(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_llm_node_skips_api_when_not_ready_or_low(tmp_path: Path) -> None:
+    s = make_settings(tmp_path)
+    r = MagicMock()
+    r.is_ready = False
+    llm = MagicMock()
+    b = NodeBundle(AgentContext(settings=s, retriever=r, llm=llm))
+    out = await b.llm_node(
+        {
+            "low_confidence": False,
+            "system_prompt": "sys",
+            "user_payload": "u",
+        }
+    )
+    assert out["raw_llm_response"] == FALLBACK_MESSAGE
+    llm.chat.completions.create.assert_not_called()
+    r2 = MagicMock()
+    r2.is_ready = True
+    b2 = NodeBundle(AgentContext(settings=s, retriever=r2, llm=llm))
+    out2 = await b2.llm_node(
+        {"low_confidence": True, "system_prompt": "s", "user_payload": "u"}
+    )
+    assert out2["raw_llm_response"] == FALLBACK_MESSAGE
+
+
+@pytest.mark.asyncio
 async def test_llm_node_falls_back_on_openai_error(tmp_path: Path) -> None:
     s = make_settings(tmp_path)
     r = MagicMock()

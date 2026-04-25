@@ -12,7 +12,7 @@ Then:
   python scripts/chat_cli.py
   # or: python scripts/chat_cli.py --base-url http://127.0.0.1:8000
 
-Commands:  quit, exit, q  — end session.  clear  — new session_id (new context).
+Commands:  help / ?  — show this help.  quit, exit, q  — end session.  clear  — new session_id (new context).
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def main() -> int:
 
     print("LISA — Life Insurance Support Assistant (CLI)")
     print(f"API: {base}  |  session: {session_id}")
-    print("Type a message, or: quit / exit / q  |  clear = new session")
+    print("Type a message, or: help  |  quit / clear")
     print("---")
 
     with httpx.Client(base_url=base, timeout=args.timeout) as client:
@@ -63,7 +63,14 @@ def main() -> int:
             return 1
 
         data = h.json()
+        llm = data.get("llm_model", "?")
+        emb = data.get("embedding_model_id", "?")
+        idx = "ready" if data.get("index_ready") else "not ready"
+        print(f"(LLM: {llm} | embeddings: {emb} | index: {idx})")
         if not data.get("index_ready", False):
+            err = (data.get("index_error") or "").strip()
+            if err:
+                print(f"Index: {err}", file=sys.stderr)
             print(
                 "Warning: FAISS index not ready — run: python scripts/ingest_kb.py",
                 file=sys.stderr,
@@ -80,6 +87,14 @@ def main() -> int:
             low = line.lower()
             if low in ("quit", "exit", "q"):
                 return 0
+            if low in ("help", "?", "h"):
+                print(
+                    "  help, ?  — this help\n"
+                    "  clear    — new session (forget prior turns for this chat)\n"
+                    "  quit, q  — exit",
+                )
+                print("---")
+                continue
             if low == "clear":
                 session_id = f"cli-{uuid.uuid4().hex[:12]}"
                 print(f"(new session) {session_id}\n---")

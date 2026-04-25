@@ -5,6 +5,19 @@
 
 A production-style AI chat agent that answers life insurance questions accurately using **retrieval-augmented generation (RAG)**. Built with **FastAPI**, **LangGraph**, **FAISS**, and **vLLM-Metal** (Apple Silicon) or any OpenAI-compatible LLM server.
 
+### Skill test alignment (AI Agent: Life Insurance Support Assistant)
+
+
+| Requirement                                 | How this repo satisfies it                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Conversational text UI                      | `scripts/chat_cli.py` (also **OpenAPI** `/docs` + `POST /chat`)                                   |
+| LLM (e.g. OpenAI API)                       | OpenAI-compatible client via `app/llm/client.py` — configure in `.env`                            |
+| Context across turns                        | `session_id` + `app/memory/store.py` — prior turns in the graph prompt; facts from RAG only       |
+| Policy types, benefits, eligibility, claims | `knowledge/insurance_kb.md` + router labels / retriever + grounded answers                        |
+| Python 3.10+, LangGraph, FastAPI, storage   | `requirements.txt`, LangGraph in `app/agent/graph.py`, FAISS + JSON metadata + in-memory sessions |
+| **Bonus:** LangGraph & configurable KB      | Graph pipeline; `KNOWLEDGE_PATH` / `DATA_DIR` in `.env.example` and `app/config.py`               |
+
+
 ## Architecture
 
 ```
@@ -24,13 +37,13 @@ FastAPI  ───────────────────────�
 **Pipeline steps:**
 
 
-| Node             | What it does                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------- |
-| `router`         | Classifies query as `informational / eligibility / claims / comparison`, or `off_topic` for obvious non-insurance topics (regex). Flags `vague_query` for very short or underspecified text (stricter retrieval threshold). |
+| Node             | What it does                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `router`         | Classifies query as `informational / eligibility / claims / comparison`, or `off_topic` for obvious non-insurance topics (regex). Flags `vague_query` for very short or underspecified text (stricter retrieval threshold).           |
 | `retriever`      | Dense vector search over the knowledge base (BGE embeddings + FAISS inner product). Queries longer than 4000 characters are truncated **only for the embedding step**; the full question text is still sent to the LLM in the prompt. |
-| `prompt_builder` | Builds the user message: optional `Recent conversation` (prior turns for this `session_id`) + `Question` + top-3 chunks as `Context` + `Answer:` |
-| `llm`            | Calls the configured OpenAI-compatible chat endpoint                                               |
-| `validator`      | Checks grounding — fraction of answer content words that appear in the context                     |
+| `prompt_builder` | Builds the user message: optional `Recent conversation` (prior turns for this `session_id`) + `Question` + top-3 chunks as `Context` + `Answer:`                                                                                      |
+| `llm`            | Calls the configured OpenAI-compatible chat endpoint                                                                                                                                                                                  |
+| `validator`      | Checks grounding — fraction of answer content words that appear in the context                                                                                                                                                        |
 
 
 **Guardrails:** If the best retrieval score is below `RETRIEVAL_MIN_SCORE` (scaled up when `vague_query` is true and there is prior conversation), the router marks the turn as `off_topic`, or the answer's grounding score is below `GROUNDING_MIN_OVERLAP`, the pipeline returns `"I don't know."` instead of a hallucinated answer. Off-topic turns skip embedding search entirely. **Standalone vague** messages (no prior turns) skip retrieval entirely so short replies like “ok” cannot match random chunks.
@@ -42,7 +55,7 @@ lisa-ai/
 ├── app/
 │   ├── main.py          # FastAPI app factory and lifespan
 │   ├── config.py        # Settings (pydantic-settings, .env)
-│   ├── api/routes.py    # GET /health, POST /chat
+│   ├── api/routes.py    # GET /, /health, POST /chat
 │   ├── agent/
 │   │   ├── context.py   # AgentContext dataclass (wired at startup)
 │   │   ├── graph.py     # LangGraph compile
@@ -50,13 +63,14 @@ lisa-ai/
 │   │   └── state.py     # GraphState TypedDict
 │   ├── llm/client.py    # AsyncOpenAI wrapper
 │   ├── memory/store.py  # In-process session history
-│   ├── models/schemas.py# Pydantic request/response models
+│   ├── models/schemas.py  # Pydantic request/response models
 │   ├── rag/
-│   │   ├── embeddings.py# BGE sentence-transformers (singleton)
+│   │   ├── embeddings.py  # BGE sentence-transformers (singleton)
 │   │   └── retriever.py # FAISS flat-IP retriever
 │   └── utils/
 │       ├── chunking.py  # Token-aware markdown chunker (tiktoken)
 │       └── grounding.py # Answer-vs-context word-overlap score
+├── tests/               # pytest suite (API, graph, RAG, utils)
 ├── knowledge/
 │   └── insurance_kb.md  # Life insurance knowledge base (editable)
 ├── scripts/
@@ -71,18 +85,19 @@ lisa-ai/
 │   ├── faiss.index
 │   └── metadata.json
 ├── .env.example
+├── pytest.ini           # pytest config (pythonpath, asyncio)
 └── requirements.txt
 ```
 
 ## Prerequisites
 
 
-| Requirement                | Details                                                                                       |
-| -------------------------- | --------------------------------------------------------------------------------------------- |
-| **Python 3.10–3.12**       | The LISA app venv (`python3 -m venv .venv`)                                                   |
-| **Python 3.12**            | Required by the `vllm-metal` venv (installed separately)                                      |
-| **macOS on Apple Silicon** | For `vllm-metal`; see [OpenAI alternative](#option-openai-api-no-local-gpu) for other systems |
-| **~3 GB free RAM**         | Qwen2.5-3B-Instruct-4bit model (downloaded once to `~/.cache/huggingface`)                    |
+| Requirement                         | Details                                                                                               |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Python 3.10+** (3.10–3.14 tested) | App venv: `python3 -m venv .venv` — use a version that matches your stack.                            |
+| **Python 3.12**                     | Required by the `vllm-metal` venv (installed separately)                                              |
+| **macOS on Apple Silicon**          | For `vllm-metal`; see [OpenAI and other remote LLMs](https://github.com/vllm-project/vllm-metal.git) for other systems |
+| **~3 GB free RAM**                  | Qwen2.5-3B-Instruct-4bit model (downloaded once to `~/.cache/huggingface`)                            |
 
 
 ## Setup
@@ -145,6 +160,14 @@ The wait loop probes `GET /v1/models` with `Authorization: Bearer` set to the sa
 
 ## API Reference
 
+### `GET /`
+
+```bash
+curl -s http://127.0.0.1:8000/
+```
+
+JSON with `service` name, `version`, and pointers to `docs`, `health`, and `chat` (for a quick check in a browser or before recording a demo).
+
 ### `GET /health`
 
 ```bash
@@ -184,20 +207,20 @@ curl -s -X POST http://127.0.0.1:8000/chat \
 **Request fields:**
 
 
-| Field        | Type   | Description                                                |
-| ------------ | ------ | ---------------------------------------------------------- |
+| Field        | Type   | Description                                                                                                                  |
+| ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | `session_id` | string | Identifies the conversation; prior turns are stored server-side and included in the LLM prompt (not used as factual context) |
-| `message`    | string | User's question (max 8000 chars; leading/trailing whitespace stripped; all-whitespace rejected) |
+| `message`    | string | User's question (max 8000 chars; leading/trailing whitespace stripped; all-whitespace rejected)                              |
 
 
 **Response fields:**
 
 
-| Field            | Type     | Description                                                 |
-| ---------------- | -------- | ----------------------------------------------------------- |
-| `response`       | string   | Answer grounded in the knowledge base, or `"I don't know."` |
-| `sources`        | string[] | KB sections the answer drew from                            |
-| `query_type`     | string   | `informational / eligibility / claims / comparison / off_topic` |
+| Field            | Type     | Description                                                                                                                   |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `response`       | string   | Answer grounded in the knowledge base, or `"I don't know."`                                                                   |
+| `sources`        | string[] | KB sections the answer drew from                                                                                              |
+| `query_type`     | string   | `informational / eligibility / claims / comparison / off_topic`                                                               |
 | `low_confidence` | bool     | `true` if retrieval was weak, the question was off-topic/vague, the LLM call failed, or the answer failed the grounding check |
 
 
@@ -208,23 +231,27 @@ export PYTHONPATH=.
 python scripts/chat_cli.py
 # or: python scripts/chat_cli.py --base-url http://127.0.0.1:8000
 
-# Commands inside the session:
-#   quit / exit / q  — end
-#   clear            — start a new session_id
+# Commands:  help  |  clear (new session)  |  quit / q
+# After connect, the CLI shows LLM, embedding model, and index status from /health.
 ```
 
 ## Automated tests (pytest)
 
-Runs without a local vLLM or a built FAISS index (startup is mocked).
+Runs without a local vLLM or a built FAISS index (startup is mocked). The project `pytest.ini` sets `pythonpath = .` so you can run `pytest` from the repo root without `export PYTHONPATH=.` (exporting it is still fine).
 
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-export PYTHONPATH=.
 pytest -q
 ```
 
-Tests cover API validation (empty / whitespace messages, max length 8000 and overflow), multi-turn `history` passed into the graph, FAISS empty-query and long-query truncation for embeddings, optional `LLM_SEED` wiring, LLM error fallbacks (`OpenAIError` and other failures), router/retriever edge cases (off-topic, vague stricter threshold, short non-English text), and HTTP responses when the graph reports `low_confidence` or `off_topic`.
+Optional coverage report for `app/`:
+
+```bash
+pytest -q --cov=app --cov-report=term-missing:skip-covered
+```
+
+Tests cover API validation (empty / whitespace messages, max length 8000 and overflow, malformed JSON, session id length), multi-turn `history` and session store behaviour, LangGraph pipeline with mocked LLM/retriever, embedding client with `SentenceTransformer` mocked, chunking and grounding utilities, FAISS empty-query and long-query truncation, index load/dimension mismatch, optional `LLM_SEED` wiring, LLM error fallbacks (`OpenAIError` and other failures), router/retriever edge cases (off-topic, vague stricter threshold, short non-English text), validator/refusal paths, and HTTP responses when the graph reports `low_confidence` or `off_topic`.
 
 ## End-to-End Verification
 
@@ -271,30 +298,30 @@ Lisa: I don't know.
 All settings are in `.env` (copy from `.env.example`). Key variables:
 
 
-| Variable                | Default                                  | Description                                  |
-| ----------------------- | ---------------------------------------- | -------------------------------------------- |
-| `DATA_DIR` / `LISA_DATA_DIR` | Project `./data`                    | FAISS index and `metadata.json` location     |
-| `KNOWLEDGE_PATH`        | `knowledge/insurance_kb.md`              | RAG source markdown; re-run `ingest_kb.py` after changes |
-| `VLLM_BASE_URL`         | `http://127.0.0.1:8001/v1`               | LLM server base URL                          |
-| `VLLM_MODEL`            | `mlx-community/Qwen2.5-3B-Instruct-4bit` | Served model name                            |
-| `VLLM_API_KEY`          | `not-needed`                             | API key for vLLM (any string)                |
-| `EMBEDDING_MODEL_ID`    | `BAAI/bge-small-en-v1.5`                 | HuggingFace sentence-transformers model      |
-| `RETRIEVAL_MIN_SCORE`   | `0.32`                                   | Minimum similarity (IP on normalized BGE) to trust retrieval |
-| `GROUNDING_MIN_OVERLAP` | `0.25`                                   | Minimum word overlap (answer vs context)     |
-| `RETRIEVER_TOP_K`       | `5`                                      | Number of chunks to retrieve                 |
-| `MEMORY_MAX_MESSAGES`   | `20`                                     | Max user+assistant lines stored; caps prompt history lines |
-| `MEMORY_PROMPT_MAX_CHARS` | `4000`                                | Max prior-conversation text in the LLM user prompt (tail) |
-| `LLM_SEED` / `VLLM_SEED` | (unset)                                | Optional: passed to the chat API when supported (more deterministic runs) |
-| `LLM_TIMEOUT_SECONDS`   | `120`                                    | HTTP timeout for LLM calls                   |
-| `LLM_MAX_TOKENS`        | `600`                                    | Max tokens to generate                       |
-| `LLM_TEMPERATURE`       | `0.1`                                    | Sampling temperature                         |
+| Variable                     | Default                                  | Description                                                               |
+| ---------------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
+| `DATA_DIR` / `LISA_DATA_DIR` | Project `./data`                         | FAISS index and `metadata.json` location                                  |
+| `KNOWLEDGE_PATH`             | `knowledge/insurance_kb.md`              | RAG source markdown; re-run `ingest_kb.py` after changes                  |
+| `VLLM_BASE_URL`              | `http://127.0.0.1:8001/v1`               | LLM server base URL                                                       |
+| `VLLM_MODEL`                 | `mlx-community/Qwen2.5-3B-Instruct-4bit` | Served model name                                                         |
+| `VLLM_API_KEY`               | `not-needed`                             | API key for vLLM (any string)                                             |
+| `EMBEDDING_MODEL_ID`         | `BAAI/bge-small-en-v1.5`                 | HuggingFace sentence-transformers model                                   |
+| `RETRIEVAL_MIN_SCORE`        | `0.32`                                   | Minimum similarity (IP on normalized BGE) to trust retrieval              |
+| `GROUNDING_MIN_OVERLAP`      | `0.25`                                   | Minimum word overlap (answer vs context)                                  |
+| `RETRIEVER_TOP_K`            | `5`                                      | Number of chunks to retrieve                                              |
+| `MEMORY_MAX_MESSAGES`        | `20`                                     | Max user+assistant lines stored; caps prompt history lines                |
+| `MEMORY_PROMPT_MAX_CHARS`    | `4000`                                   | Max prior-conversation text in the LLM user prompt (tail)                 |
+| `LLM_SEED` / `VLLM_SEED`     | (unset)                                  | Optional: passed to the chat API when supported (more deterministic runs) |
+| `LLM_TIMEOUT_SECONDS`        | `120`                                    | HTTP timeout for LLM calls                                                |
+| `LLM_MAX_TOKENS`             | `600`                                    | Max tokens to generate                                                    |
+| `LLM_TEMPERATURE`            | `0.1`                                    | Sampling temperature                                                      |
 
 
 The config supports alias groups so `VLLM_*`, `LLM_*`, and `OPENAI_*` all map to the same fields.
 
-## Option: OpenAI API (no local GPU)
+## OpenAI and other remote LLMs
 
-Uncomment the OpenAI block in `.env`:
+Use any OpenAI-compatible API (including OpenAI’s hosted API) so you do **not** need a local vLLM server. Uncomment the block in `.env`:
 
 ```env
 OPENAI_API_KEY=sk-...

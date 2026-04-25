@@ -51,6 +51,32 @@ def mocked_lisa_app(
 @patch("app.main.get_llm_client", return_value=MagicMock())
 @patch("app.main.FAISSRetriever")
 @patch("app.main.build_graph")
+def test_get_root(
+    mock_graph: MagicMock,
+    mock_faiss: MagicMock,
+    _mock_llm: MagicMock,
+    _mock_emb: MagicMock,
+) -> None:
+    ret = MagicMock()
+    ret.is_ready = True
+    ret.load = MagicMock()
+    mock_faiss.return_value = ret
+    mock_graph.return_value = MagicMock(ainvoke=AsyncMock())
+    from app.main import create_app
+
+    with TestClient(create_app()) as client:
+        r = client.get("/")
+    assert r.status_code == 200
+    body = r.json()
+    assert "LISA" in body.get("service", "")
+    assert body.get("version")
+    assert "/docs" in body.get("docs", "")
+
+
+@patch("app.main.get_embedding_model", return_value=MagicMock())
+@patch("app.main.get_llm_client", return_value=MagicMock())
+@patch("app.main.FAISSRetriever")
+@patch("app.main.build_graph")
 def test_get_health(
     mock_graph: MagicMock,
     mock_faiss: MagicMock,
@@ -140,6 +166,37 @@ def test_post_chat_422_whitespace_message() -> None:
     assert r.status_code == 422
 
 
+def test_post_chat_422_message_exceeds_max() -> None:
+    with mocked_lisa_app() as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "s", "message": "a" * 8001},
+            )
+    assert r.status_code == 422
+
+
+def test_post_chat_422_malformed_json() -> None:
+    with mocked_lisa_app() as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                content=b"not-json{",
+                headers={"Content-Type": "application/json"},
+            )
+    assert r.status_code == 422
+
+
+def test_post_chat_422_session_id_too_long() -> None:
+    with mocked_lisa_app() as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "a" * 257, "message": "hi"},
+            )
+    assert r.status_code == 422
+
+
 def test_post_chat_503_on_graph_failure() -> None:
     with mocked_lisa_app(ainvoke_side_effect=RuntimeError("graph boom")) as (app, ainvoke):
         with TestClient(app) as client:
@@ -183,6 +240,25 @@ def test_post_chat_propagates_low_confidence_from_graph() -> None:
     assert body["low_confidence"] is True
     assert body["response"] == "I don't know."
     assert body["sources"] == []
+
+
+def test_post_chat_coerces_non_list_sources() -> None:
+    """If graph returns malformed ``sources`` (e.g. string), response uses []."""
+    with mocked_lisa_app(
+        ainvoke_result={
+            "final_response": "ok",
+            "sources": "not a list",
+            "query_type": "informational",
+            "low_confidence": False,
+        }
+    ) as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "s-src", "message": "hello"},
+            )
+    assert r.status_code == 200
+    assert r.json()["sources"] == []
 
 
 def test_post_chat_off_topic_query_type() -> None:
