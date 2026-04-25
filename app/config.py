@@ -45,14 +45,22 @@ class Settings(BaseSettings):
         description="Sentence-transformers model id (BGE small English).",
     )
 
-    # Project root: parent of the app package
+    # Project root: parent of the app package. Override via env to point at alternate KB / index.
     data_dir: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parent.parent / "data",
+        description="FAISS index and metadata directory.",
+        validation_alias=AliasChoices("DATA_DIR", "LISA_DATA_DIR"),
     )
     knowledge_path: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parent.parent
         / "knowledge"
         / "insurance_kb.md",
+        description="Life insurance RAG source (markdown, ## section headers).",
+        validation_alias=AliasChoices(
+            "KNOWLEDGE_PATH",
+            "INSURANCE_KB_PATH",
+            "LISA_KNOWLEDGE_PATH",
+        ),
     )
 
     retriever_top_k: int = 5

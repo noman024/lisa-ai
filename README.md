@@ -273,6 +273,8 @@ All settings are in `.env` (copy from `.env.example`). Key variables:
 
 | Variable                | Default                                  | Description                                  |
 | ----------------------- | ---------------------------------------- | -------------------------------------------- |
+| `DATA_DIR` / `LISA_DATA_DIR` | Project `./data`                    | FAISS index and `metadata.json` location     |
+| `KNOWLEDGE_PATH`        | `knowledge/insurance_kb.md`              | RAG source markdown; re-run `ingest_kb.py` after changes |
 | `VLLM_BASE_URL`         | `http://127.0.0.1:8001/v1`               | LLM server base URL                          |
 | `VLLM_MODEL`            | `mlx-community/Qwen2.5-3B-Instruct-4bit` | Served model name                            |
 | `VLLM_API_KEY`          | `not-needed`                             | API key for vLLM (any string)                |
