@@ -13,6 +13,9 @@ import numpy as np
 
 from app.rag.embeddings import EmbeddingModel
 
+# Embedding models have finite context; long questions still use the full text in the LLM prompt.
+_RETRIEVAL_QUERY_MAX_CHARS = 4000
+
 
 @dataclass(frozen=True)
 class RetrievedChunk:
@@ -85,9 +88,15 @@ class FAISSRetriever:
         """
         Return top-``k`` chunks and the best score (0 if no index / empty).
         """
-        if not self.is_ready or not query.strip() or not self._index:
+        q_raw = (query or "").strip()
+        if not self.is_ready or not q_raw or not self._index:
             return [], 0.0
-        q = self._emb.encode([query])
+        q_embed = (
+            q_raw
+            if len(q_raw) <= _RETRIEVAL_QUERY_MAX_CHARS
+            else q_raw[:_RETRIEVAL_QUERY_MAX_CHARS]
+        )
+        q = self._emb.encode([q_embed])
         if q.ndim == 1:
             q = q.reshape(1, -1)
         q = _l2_renorm(q)

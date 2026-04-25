@@ -21,6 +21,8 @@ from app.agent.state import FALLBACK_MESSAGE, GraphState
 from app.config import Settings
 from app.rag.retriever import RetrievedChunk
 from tests.conftest import settings_for_tests
+
+
 def make_settings(tmp_path: Path) -> Settings:
     return settings_for_tests(
         data_dir=tmp_path,

@@ -27,7 +27,7 @@ FastAPI  ───────────────────────�
 | Node             | What it does                                                                                       |
 | ---------------- | -------------------------------------------------------------------------------------------------- |
 | `router`         | Classifies query as `informational / eligibility / claims / comparison`, or `off_topic` for obvious non-insurance topics (regex). Flags `vague_query` for very short or underspecified text (stricter retrieval threshold). |
-| `retriever`      | Dense vector search over the knowledge base (BGE embeddings + FAISS inner product)                 |
+| `retriever`      | Dense vector search over the knowledge base (BGE embeddings + FAISS inner product). Queries longer than 4000 characters are truncated **only for the embedding step**; the full question text is still sent to the LLM in the prompt. |
 | `prompt_builder` | Builds the user message: optional `Recent conversation` (prior turns for this `session_id`) + `Question` + top-3 chunks as `Context` + `Answer:` |
 | `llm`            | Calls the configured OpenAI-compatible chat endpoint                                               |
 | `validator`      | Checks grounding — fraction of answer content words that appear in the context                     |
@@ -224,7 +224,7 @@ export PYTHONPATH=.
 pytest -q
 ```
 
-Tests cover API validation (empty / whitespace messages, max length and overflow), multi-turn `history` passed into the graph, FAISS empty-query behavior, optional `LLM_SEED` wiring, LLM error fallbacks (`OpenAIError` and other failures), and router/retriever edge cases (off-topic, vague stricter threshold).
+Tests cover API validation (empty / whitespace messages, max length 8000 and overflow), multi-turn `history` passed into the graph, FAISS empty-query and long-query truncation for embeddings, optional `LLM_SEED` wiring, LLM error fallbacks (`OpenAIError` and other failures), router/retriever edge cases (off-topic, vague stricter threshold, short non-English text), and HTTP responses when the graph reports `low_confidence` or `off_topic`.
 
 ## End-to-End Verification
 

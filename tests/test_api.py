@@ -149,3 +149,55 @@ def test_post_chat_503_on_graph_failure() -> None:
             )
     assert r.status_code == 503
     ainvoke.assert_awaited()
+
+
+def test_post_chat_accepts_max_length_message() -> None:
+    """Boundary: 8000 characters after strip (schema max)."""
+    msg = "a" * 8000
+    with mocked_lisa_app() as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "s-max", "message": msg},
+            )
+    assert r.status_code == 200
+    assert r.json()["response"] == "Answer from test graph."
+
+
+def test_post_chat_propagates_low_confidence_from_graph() -> None:
+    with mocked_lisa_app(
+        ainvoke_result={
+            "final_response": "I don't know.",
+            "sources": [],
+            "query_type": "informational",
+            "low_confidence": True,
+        }
+    ) as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "s-low", "message": "Obscure fact not in KB?"},
+            )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["low_confidence"] is True
+    assert body["response"] == "I don't know."
+    assert body["sources"] == []
+
+
+def test_post_chat_off_topic_query_type() -> None:
+    with mocked_lisa_app(
+        ainvoke_result={
+            "final_response": "I don't know.",
+            "sources": [],
+            "query_type": "off_topic",
+            "low_confidence": True,
+        }
+    ) as (app, _a):
+        with TestClient(app) as client:
+            r = client.post(
+                "/chat",
+                json={"session_id": "s-ood", "message": "What's the stock price?"},
+            )
+    assert r.status_code == 200
+    assert r.json()["query_type"] == "off_topic"
