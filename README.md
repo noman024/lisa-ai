@@ -1,5 +1,8 @@
 # LISA — Life Insurance Support Assistant
 
+- **Author:** MD Mutasim Billah Noman
+- **Updated on:** 25 April 2026
+
 A production-style AI chat agent that answers life insurance questions accurately using **retrieval-augmented generation (RAG)**. Built with **FastAPI**, **LangGraph**, **FAISS**, and **vLLM-Metal** (Apple Silicon) or any OpenAI-compatible LLM server.
 
 ## Architecture
@@ -87,7 +90,7 @@ lisa-ai/
 ### 1 — Clone and create the LISA venv
 
 ```bash
-git clone <repo-url> && cd lisa-ai
+git clone https://github.com/noman024/lisa-ai.git && cd lisa-ai
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
