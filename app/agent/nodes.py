@@ -129,6 +129,29 @@ def _collapse_repeated_fallback(text: str) -> str:
     return text
 
 
+def _should_collapse_to_fallback(clean: str) -> bool:
+    """
+    True when the model started with \"I don't know\" but added a non-answer explanation.
+
+    The substring check ``FALLBACK_MESSAGE in clean`` incorrectly accepted those as
+    grounded and kept irrelevant KB sources; we collapse to the canonical fallback.
+    """
+    t = clean.strip()
+    if not t or t == FALLBACK_MESSAGE:
+        return False
+    for pattern in (r"^I don't know[.!]?(\s+|$)", r"^I do not know[.!]?(\s+|$)"):
+        m = re.match(pattern, t, re.IGNORECASE)
+        if not m:
+            continue
+        rest = t[m.end() :].strip()
+        if not rest:
+            return False
+        if not _INSURANCE_HINT.search(rest):
+            return True
+        return False
+    return False
+
+
 def _sources_from_retrieved(data: list[dict[str, Any]], max_n: int = 8) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -317,12 +340,30 @@ class NodeBundle:
 
         clean = _collapse_repeated_fallback(raw)
 
+        if _should_collapse_to_fallback(clean):
+            return {
+                "final_response": FALLBACK_MESSAGE,
+                "grounded_ok": False,
+                "sources": [],
+                "low_confidence": True,
+            }
+
         if clean == FALLBACK_MESSAGE:
-            return {"final_response": FALLBACK_MESSAGE, "grounded_ok": True, "sources": src}
+            return {
+                "final_response": FALLBACK_MESSAGE,
+                "grounded_ok": True,
+                "sources": [],
+                "low_confidence": True,
+            }
 
         g = grounding_score(_strip_for_grounding(clean), ctx)
-        if g >= s.grounding_min_overlap or FALLBACK_MESSAGE in clean:
-            return {"final_response": clean, "grounded_ok": True, "sources": src}
+        if g >= s.grounding_min_overlap:
+            return {
+                "final_response": clean,
+                "grounded_ok": True,
+                "sources": src,
+                "low_confidence": False,
+            }
 
         return {
             "final_response": FALLBACK_MESSAGE,
@@ -337,5 +378,6 @@ __all__ = [
     "_classify_query_type",
     "_is_off_topic",
     "_is_vague_query",
+    "_should_collapse_to_fallback",
     "format_conversation_for_prompt",
 ]

@@ -15,6 +15,7 @@ from app.agent.nodes import (
     _classify_query_type,
     _is_off_topic,
     _is_vague_query,
+    _should_collapse_to_fallback,
     format_conversation_for_prompt,
 )
 from app.agent.state import FALLBACK_MESSAGE, GraphState
@@ -240,6 +241,36 @@ def test_validator_llm_call_failed_flags_low_confidence(tmp_path: Path) -> None:
     assert out["final_response"] == FALLBACK_MESSAGE
     assert out["low_confidence"] is True
     assert out["sources"] == []
+
+
+def test_should_collapse_to_fallback_idk_with_meta_explanation() -> None:
+    long_refusal = (
+        'I don\'t know. The question "What is sex?" is not related '
+        "to the information provided in the context."
+    )
+    assert _should_collapse_to_fallback(long_refusal) is True
+    assert _should_collapse_to_fallback("I don't know. Term life has no cash value.") is False
+
+
+def test_validator_verbose_idk_collapses_and_clears_sources(tmp_path: Path) -> None:
+    s = make_settings(tmp_path)
+    r = MagicMock()
+    r.is_ready = True
+    b = NodeBundle(AgentContext(settings=s, retriever=r, llm=MagicMock()))
+    out = b.validator_node(
+        {
+            "low_confidence": False,
+            "raw_llm_response": (
+                'I don\'t know. The question is not related to the information '
+                "provided in the context."
+            ),
+            "context_text": "Term life provides temporary coverage.",
+            "retrieved": [{"id": 0, "text": "t", "source_section": "Term", "score": 0.9}],
+        }
+    )
+    assert out["final_response"] == FALLBACK_MESSAGE
+    assert out["sources"] == []
+    assert out["low_confidence"] is True
 
 
 def test_validator_ungrounded_answer_flags_low_confidence(tmp_path: Path) -> None:
