@@ -30,8 +30,9 @@ async def health(request: Request) -> HealthResponse:
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     """
-    Run one user turn: inject prior history (5–10 turns) from the session store,
-    execute the LangGraph, then append this turn to memory.
+    Run one user turn: load prior turns for this ``session_id``, run the LangGraph
+    (history is formatted into the prompt for follow-ups; facts still come from RAG),
+    then append this turn to the session store.
     """
     store = request.app.state.session_store
     graph = request.app.state.graph

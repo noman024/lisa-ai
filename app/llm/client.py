@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
+
 from openai import AsyncOpenAI
 
 from app.config import Settings, get_settings
@@ -38,15 +40,18 @@ async def chat_text(
     user: str,
 ) -> str:
     """Run a single-turn chat and return the assistant message content."""
-    resp = await client.chat.completions.create(
-        model=settings.llm_model,
-        temperature=settings.llm_temperature,
-        max_tokens=settings.llm_max_tokens,
-        messages=[
+    params: dict[str, Any] = {
+        "model": settings.llm_model,
+        "temperature": settings.llm_temperature,
+        "max_tokens": settings.llm_max_tokens,
+        "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-    )
+    }
+    if settings.llm_seed is not None:
+        params["seed"] = settings.llm_seed
+    resp = await client.chat.completions.create(**params)
     choice = resp.choices[0]
     if not choice.message or not choice.message.content:
         return ""

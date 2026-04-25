@@ -99,10 +99,40 @@ def _build_system_prompt() -> str:
     return (
         "You are LISA, a knowledgeable life insurance support assistant. "
         "Answer the user's question using ONLY the facts found in the provided Context section. "
+        "If a \"Recent conversation\" block is present, use it only to understand follow-up questions "
+        "(e.g. what \"it\" refers to). Do not treat the conversation as a source of factual claims. "
         "Be clear, accurate, and helpful. "
         f'If the context does not contain enough information to answer, respond with exactly: "{FALLBACK_MESSAGE}" '
         "Do not invent policy terms, rates, or guarantees."
     )
+
+
+def format_conversation_for_prompt(
+    history: list[dict] | None,
+    max_messages: int,
+    max_chars: int,
+) -> str:
+    """
+    Turn prior user/assistant turns into a compact block for the RAG user prompt.
+
+    The current user message is not included here: it is passed separately as ``Question``.
+    """
+    if not history or max_messages <= 0:
+        return ""
+    lines: list[str] = []
+    for m in history[-max_messages:]:
+        role = m.get("role", "")
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        label = "User" if role == "user" else "Assistant"
+        lines.append(f"{label}: {content}")
+    if not lines:
+        return ""
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = "…\n" + text[-max_chars:].lstrip()
+    return text
 
 
 class NodeBundle:
@@ -129,6 +159,7 @@ class NodeBundle:
         }
 
     def prompt_builder_node(self, state: GraphState) -> dict[str, Any]:
+        s = self._ctx.settings
         user_q = state.get("user_message", "")
         low = state.get("low_confidence", False)
         retrieved = state.get("retrieved", [])
@@ -139,12 +170,25 @@ class NodeBundle:
             parts = [r.get("text", "") for r in retrieved[:3] if r.get("text")]
             context_block = _trim_context("\n\n".join(parts))
 
-        # "Answer:" suffix elicits a direct response without preamble.
-        user_payload = (
-            f"Question: {user_q}\n\n"
-            f"Context:\n{context_block}\n\n"
-            f"Answer:"
+        history_block = format_conversation_for_prompt(
+            state.get("history"),
+            max_messages=s.memory_max_messages,
+            max_chars=s.memory_prompt_max_chars,
         )
+        if history_block:
+            user_payload = (
+                f"Recent conversation:\n{history_block}\n\n"
+                f"Question: {user_q}\n\n"
+                f"Context:\n{context_block}\n\n"
+                f"Answer:"
+            )
+        else:
+            # "Answer:" suffix elicits a direct response without preamble.
+            user_payload = (
+                f"Question: {user_q}\n\n"
+                f"Context:\n{context_block}\n\n"
+                f"Answer:"
+            )
         return {
             "system_prompt": _build_system_prompt(),
             "user_payload": user_payload,
@@ -161,7 +205,10 @@ class NodeBundle:
                 user=state.get("user_payload", ""),
             )
         except OpenAIError as exc:
-            _log.warning("LLM request failed: %s", exc)
+            _log.warning("LLM request failed (OpenAIError): %s", exc)
+            return {"raw_llm_response": FALLBACK_MESSAGE}
+        except Exception as exc:
+            _log.warning("LLM request failed: %s", exc, exc_info=True)
             return {"raw_llm_response": FALLBACK_MESSAGE}
         return {"raw_llm_response": out or FALLBACK_MESSAGE}
 
@@ -187,4 +234,4 @@ class NodeBundle:
         return {"final_response": FALLBACK_MESSAGE, "grounded_ok": False, "sources": []}
 
 
-__all__ = ["NodeBundle", "_classify_query_type"]
+__all__ = ["NodeBundle", "_classify_query_type", "format_conversation_for_prompt"]

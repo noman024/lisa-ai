@@ -30,7 +30,7 @@ class Settings(BaseSettings):
         ),
     )
     llm_model: str = Field(
-        default="meta-llama/Meta-Llama-3-8B-Instruct",
+        default="mlx-community/Qwen2.5-3B-Instruct-4bit",
         description="Model id (served name in vLLM, or OpenAI model name).",
         validation_alias=AliasChoices("VLLM_MODEL", "LLM_MODEL", "OPENAI_MODEL"),
     )
@@ -65,7 +65,19 @@ class Settings(BaseSettings):
         description="Min fraction of answer content words that must appear in context.",
     )
 
-    memory_max_messages: int = 20
+    memory_max_messages: int = Field(
+        default=20,
+        description="Max user+assistant lines per session; also caps how many are formatted into the LLM prompt.",
+    )
+    memory_prompt_max_chars: int = Field(
+        default=4000,
+        description="Max characters of prior conversation to include in the RAG user prompt (tail-truncated).",
+    )
+    llm_seed: int | None = Field(
+        default=None,
+        description="If set, passed to chat.completions (OpenAI/vLLM) for more deterministic sampling when supported.",
+        validation_alias=AliasChoices("LLM_SEED", "VLLM_SEED"),
+    )
     llm_timeout_seconds: float = Field(
         default=120.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "VLLM_TIMEOUT_SECONDS"),

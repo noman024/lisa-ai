@@ -28,7 +28,7 @@ FastAPI  ───────────────────────�
 | ---------------- | -------------------------------------------------------------------------------------------------- |
 | `router`         | Classifies query as `informational / eligibility / claims / comparison` (regex, no extra LLM call) |
 | `retriever`      | Dense vector search over the knowledge base (BGE embeddings + FAISS inner product)                 |
-| `prompt_builder` | Constructs `Question → Context → Answer:` prompt from top-3 retrieved chunks                       |
+| `prompt_builder` | Builds the user message: optional `Recent conversation` (prior turns for this `session_id`) + `Question` + top-3 chunks as `Context` + `Answer:` |
 | `llm`            | Calls the configured OpenAI-compatible chat endpoint                                               |
 | `validator`      | Checks grounding — fraction of answer content words that appear in the context                     |
 
@@ -183,8 +183,8 @@ curl -s -X POST http://127.0.0.1:8000/chat \
 
 | Field        | Type   | Description                                                |
 | ------------ | ------ | ---------------------------------------------------------- |
-| `session_id` | string | Identifies the conversation; history is stored server-side |
-| `message`    | string | User's question (max 8000 chars)                           |
+| `session_id` | string | Identifies the conversation; prior turns are stored server-side and included in the LLM prompt (not used as factual context) |
+| `message`    | string | User's question (max 8000 chars; leading/trailing whitespace stripped; all-whitespace rejected) |
 
 
 **Response fields:**
@@ -209,6 +209,19 @@ python scripts/chat_cli.py
 #   quit / exit / q  — end
 #   clear            — start a new session_id
 ```
+
+## Automated tests (pytest)
+
+Runs without a local vLLM or a built FAISS index (startup is mocked).
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+export PYTHONPATH=.
+pytest -q
+```
+
+Tests cover API validation (empty / whitespace messages), multi-turn `history` passed into the graph, FAISS empty-query behavior, optional `LLM_SEED` wiring, and LLM error fallbacks.
 
 ## End-to-End Verification
 
@@ -261,12 +274,14 @@ All settings are in `.env` (copy from `.env.example`). Key variables:
 | `VLLM_MODEL`            | `mlx-community/Qwen2.5-3B-Instruct-4bit` | Served model name                            |
 | `VLLM_API_KEY`          | `not-needed`                             | API key for vLLM (any string)                |
 | `EMBEDDING_MODEL_ID`    | `BAAI/bge-small-en-v1.5`                 | HuggingFace sentence-transformers model      |
-| `RETRIEVAL_MIN_SCORE`   | `0.25`                                   | Minimum cosine similarity to trust retrieval |
-| `GROUNDING_MIN_OVERLAP` | `0.15`                                   | Minimum word overlap (answer vs context)     |
+| `RETRIEVAL_MIN_SCORE`   | `0.32`                                   | Minimum similarity (IP on normalized BGE) to trust retrieval |
+| `GROUNDING_MIN_OVERLAP` | `0.25`                                   | Minimum word overlap (answer vs context)     |
 | `RETRIEVER_TOP_K`       | `5`                                      | Number of chunks to retrieve                 |
-| `MEMORY_MAX_MESSAGES`   | `20`                                     | Max messages stored per session              |
-| `LLM_TIMEOUT_SECONDS`   | `180`                                    | HTTP timeout for LLM calls                   |
-| `LLM_MAX_TOKENS`        | `512`                                    | Max tokens to generate                       |
+| `MEMORY_MAX_MESSAGES`   | `20`                                     | Max user+assistant lines stored; caps prompt history lines |
+| `MEMORY_PROMPT_MAX_CHARS` | `4000`                                | Max prior-conversation text in the LLM user prompt (tail) |
+| `LLM_SEED` / `VLLM_SEED` | (unset)                                | Optional: passed to the chat API when supported (more deterministic runs) |
+| `LLM_TIMEOUT_SECONDS`   | `120`                                    | HTTP timeout for LLM calls                   |
+| `LLM_MAX_TOKENS`        | `600`                                    | Max tokens to generate                       |
 | `LLM_TEMPERATURE`       | `0.1`                                    | Sampling temperature                         |
 
 
