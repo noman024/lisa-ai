@@ -71,6 +71,33 @@ def test_get_health(
     assert data["status"] == "ok"
     assert "llm_model" in data
     assert data["index_ready"] is True
+    assert data.get("index_error") in (None, "")
+
+
+@patch("app.main.get_embedding_model", return_value=MagicMock())
+@patch("app.main.get_llm_client", return_value=MagicMock())
+@patch("app.main.FAISSRetriever")
+@patch("app.main.build_graph")
+def test_get_health_shows_index_error_when_not_ready(
+    mock_graph: MagicMock,
+    mock_faiss: MagicMock,
+    _mock_llm: MagicMock,
+    _mock_emb: MagicMock,
+) -> None:
+    ret = MagicMock()
+    ret.is_ready = False
+    ret.load = MagicMock()
+    ret.load_error = "Missing data/faiss.index or data/metadata.json. Run scripts/ingest_kb.py"
+    mock_faiss.return_value = ret
+    mock_graph.return_value = MagicMock(ainvoke=AsyncMock())
+    from app.main import create_app
+
+    with TestClient(create_app()) as client:
+        r = client.get("/health")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["index_ready"] is False
+    assert "ingest_kb" in (data.get("index_error") or "")
 
 
 def test_post_chat_200() -> None:

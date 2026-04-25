@@ -130,8 +130,10 @@ def main() -> int:
             print("FAIL: health.status is not 'ok'", file=sys.stderr)
             return 1
         if not health.get("index_ready"):
+            err = health.get("index_error")
+            hint = f" ({err})" if err else ""
             print(
-                "FAIL: index_ready is false — run: export PYTHONPATH=. && python scripts/ingest_kb.py",
+                f"FAIL: index_ready is false{hint} — run: export PYTHONPATH=. && python scripts/ingest_kb.py",
                 file=sys.stderr,
             )
             return 1

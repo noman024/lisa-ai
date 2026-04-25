@@ -24,6 +24,7 @@ async def health(request: Request) -> HealthResponse:
         llm_model=s.llm_model,
         embedding_model_id=s.embedding_model_id,
         index_ready=bool(r.is_ready),
+        index_error=r.load_error if not r.is_ready else None,
     )
 
 

@@ -45,6 +45,7 @@ class HealthResponse(BaseModel):
     llm_model: str
     embedding_model_id: str
     index_ready: bool
+    index_error: str | None = None
 
 
 __all__ = ["ChatRequest", "ChatResponse", "HealthResponse"]

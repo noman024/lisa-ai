@@ -33,3 +33,8 @@ def test_max_length_message() -> None:
     msg = "a" * 8000
     r = ChatRequest(session_id="s", message=msg)
     assert len(r.message) == 8000
+
+
+def test_message_over_max_length_rejected() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(session_id="s", message="a" * 8001)

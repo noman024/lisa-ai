@@ -14,6 +14,8 @@ class GraphState(TypedDict, total=False):
     history: List[dict]
 
     query_type: str
+    # True when the question is very short/underspecified (stricter retrieval threshold).
+    vague_query: bool
     # Serialized retrieval results
     retrieved: List[dict]
     best_score: float
@@ -23,6 +25,8 @@ class GraphState(TypedDict, total=False):
     system_prompt: str
     user_payload: str
     raw_llm_response: str
+    # Set when chat.completions raised (timeout, 5xx, etc.) so the API can flag low_confidence.
+    llm_call_failed: bool
     final_response: str
     sources: List[str]
     grounded_ok: bool

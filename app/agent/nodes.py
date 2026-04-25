@@ -22,6 +22,54 @@ _SECTION_LABEL = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Stricter similarity bar when the user message looks underspecified (vague / very short).
+_VAGUE_RETRIEVAL_SCORE_MULT = 1.15
+
+_INSURANCE_HINT = re.compile(
+    r"\b("
+    r"term|whole|universal|life|insur|policy|policies|claim|claims|premium|premiums|"
+    r"benefici|coverage|death|underwrit|underwriting|rider|riders|cash\s+value|"
+    r"annuity|lapse|contestab|face\s+amount|death\s+benefit"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_OFF_TOPIC = re.compile(
+    r"\b("
+    r"weather|forecast|rain|snow|temperature|humidity|hurricane|tornado|"
+    r"nfl|nba|mlb|fifa|super\s+bowl|world\s+cup|olympics|"
+    r"recipe|ingredients|\bcook\b|\bbake\b|"
+    r"javascript|typescript|react\.js|node\.js|debug\s+my\s+code|stack\s+overflow|"
+    r"bitcoin|ethereum|cryptocurrency|\bcrypto\b"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_off_topic(message: str) -> bool:
+    """Heuristic non-insurance topics — skipped when an insurance term is present."""
+    if _INSURANCE_HINT.search(message):
+        return False
+    return bool(_OFF_TOPIC.search(message))
+
+
+def _is_vague_query(message: str) -> bool:
+    """
+    Underspecified questions: very short, or few tokens without insurance vocabulary.
+
+    Follow-ups like \"Does it build cash value?\" are not vague (enough tokens; may use history).
+    """
+    s = message.strip()
+    if not s:
+        return True
+    if _INSURANCE_HINT.search(s):
+        return False
+    if len(s) < 12:
+        return True
+    if len(s.split()) <= 2:
+        return True
+    return False
+
 
 def _classify_query_type(message: str) -> str:
     """Classify the question with regex — no extra LLM call."""
@@ -143,14 +191,40 @@ class NodeBundle:
 
     def router_node(self, state: GraphState) -> dict[str, Any]:
         q = state.get("user_message", "")
-        return {"query_type": _classify_query_type(q)}
+        if _is_off_topic(q):
+            return {"query_type": "off_topic", "vague_query": False}
+        return {
+            "query_type": _classify_query_type(q),
+            "vague_query": _is_vague_query(q),
+        }
 
     async def retriever_node(self, state: GraphState) -> dict[str, Any]:
         s = self._ctx.settings
         r = self._ctx.retriever
         msg = state.get("user_message", "")
+        if state.get("query_type") == "off_topic":
+            return {
+                "retrieved": [],
+                "best_score": 0.0,
+                "context_text": "",
+                "low_confidence": True,
+            }
+        vague = bool(state.get("vague_query", False))
+        history = state.get("history") or []
+        # Standalone vague text (e.g. "ok", "thanks") often gets spuriously high similarity;
+        # skip retrieval and avoid an LLM call unless prior turns disambiguate.
+        if vague and not history:
+            return {
+                "retrieved": [],
+                "best_score": 0.0,
+                "context_text": "",
+                "low_confidence": True,
+            }
+        min_score = s.retrieval_min_score * (
+            _VAGUE_RETRIEVAL_SCORE_MULT if vague else 1.0
+        )
         chunks, best = r.search(msg, k=s.retriever_top_k)
-        low = (not chunks) or (best < s.retrieval_min_score) or (not r.is_ready)
+        low = (not chunks) or (best < min_score) or (not r.is_ready)
         return {
             "retrieved": _ser_chunks(chunks),
             "best_score": best,
@@ -206,10 +280,16 @@ class NodeBundle:
             )
         except OpenAIError as exc:
             _log.warning("LLM request failed (OpenAIError): %s", exc)
-            return {"raw_llm_response": FALLBACK_MESSAGE}
+            return {
+                "raw_llm_response": FALLBACK_MESSAGE,
+                "llm_call_failed": True,
+            }
         except Exception as exc:
             _log.warning("LLM request failed: %s", exc, exc_info=True)
-            return {"raw_llm_response": FALLBACK_MESSAGE}
+            return {
+                "raw_llm_response": FALLBACK_MESSAGE,
+                "llm_call_failed": True,
+            }
         return {"raw_llm_response": out or FALLBACK_MESSAGE}
 
     def validator_node(self, state: GraphState) -> dict[str, Any]:
@@ -219,8 +299,21 @@ class NodeBundle:
         ctx = state.get("context_text", "")
         src = _sources_from_retrieved(state.get("retrieved", []))
 
+        if state.get("llm_call_failed"):
+            return {
+                "final_response": FALLBACK_MESSAGE,
+                "grounded_ok": False,
+                "sources": [],
+                "low_confidence": True,
+            }
+
         if low or not ctx.strip():
-            return {"final_response": FALLBACK_MESSAGE, "grounded_ok": False, "sources": []}
+            return {
+                "final_response": FALLBACK_MESSAGE,
+                "grounded_ok": False,
+                "sources": [],
+                "low_confidence": True,
+            }
 
         clean = _collapse_repeated_fallback(raw)
 
@@ -231,7 +324,18 @@ class NodeBundle:
         if g >= s.grounding_min_overlap or FALLBACK_MESSAGE in clean:
             return {"final_response": clean, "grounded_ok": True, "sources": src}
 
-        return {"final_response": FALLBACK_MESSAGE, "grounded_ok": False, "sources": []}
+        return {
+            "final_response": FALLBACK_MESSAGE,
+            "grounded_ok": False,
+            "sources": [],
+            "low_confidence": True,
+        }
 
 
-__all__ = ["NodeBundle", "_classify_query_type", "format_conversation_for_prompt"]
+__all__ = [
+    "NodeBundle",
+    "_classify_query_type",
+    "_is_off_topic",
+    "_is_vague_query",
+    "format_conversation_for_prompt",
+]
